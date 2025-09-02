@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
 
     <application
       android:name=".MainApplication"
@@ -9,6 +11,8 @@
       android:roundIcon="@mipmap/ic_launcher_round"
       android:allowBackup="false"
       android:theme="@style/AppTheme">
+      <!-- Make ARCore optional so app can run on non-supported devices -->
+      <meta-data android:name="com.google.ar.core" android:value="optional" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
