@@ -6,6 +6,13 @@ const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
  *
  * @type {import('metro-config').MetroConfig}
  */
-const config = {};
+const defaultConfig = getDefaultConfig(__dirname);
+const {assetExts} = defaultConfig.resolver;
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), config);
+const config = {
+  resolver: {
+    assetExts: [...new Set([...(assetExts || []), 'glb', 'gltf'])],
+  },
+};
+
+module.exports = mergeConfig(defaultConfig, config);
