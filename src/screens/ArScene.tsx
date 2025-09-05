@@ -1,152 +1,135 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Dimensions, StyleSheet} from 'react-native';
+import {StyleSheet, Platform, ToastAndroid} from 'react-native';
 import {
   ViroARScene,
   Viro3DObject,
   ViroAmbientLight,
   ViroDirectionalLight,
   ViroText,
-  ViroMaterials,
   ViroNode,
-  ViroQuad,
+  ViroARImageMarker,
+  ViroARTrackingTargets,
+  ViroAnimations,
 } from '@viro-community/react-viro';
 
 const styles = StyleSheet.create({
   hintText: {fontSize: 16, color: '#00ff88'},
-  reticle: {opacity: 0.6},
 });
+
+// Register marker target and basic animations (idempotent)
+try {
+  ViroARTrackingTargets.createTargets({
+    markerA: {
+      source: require('../assets/markers/markerA.png'),
+      orientation: 'Up',
+      physicalWidth: 0.1, // meters (10 cm)
+    },
+  });
+} catch {}
+try {
+  ViroAnimations.registerAnimations({
+    fadeIn: {properties: {opacity: 1.0}, duration: 250, easing: 'EaseIn'},
+    fadeOut: {properties: {opacity: 0.0}, duration: 250, easing: 'EaseOut'},
+  });
+} catch {}
 
 const ArScene: React.FC<any> = () => {
   const sceneRef = useRef<any>(null);
-  const [placed, setPlaced] = useState(false);
-  const [following, setFollowing] = useState(true);
-  const [pos, setPos] = useState<[number, number, number] | null>(null);
-  const [rot, setRot] = useState<[number, number, number] | null>(null);
   const [scale, setScale] = useState(0.4);
   const baseScaleRef = useRef(0.4);
-  const wallMode =
-    !!sceneRef.current?.props?.sceneNavigator?.viroAppProps?.wallMode;
+  const [markerVisible, setMarkerVisible] = useState(false);
+  const prevMarkerVisibleRef = useRef(false);
+  const lastToastAtRef = useRef(0);
+  const lastTapAtRef = useRef(0);
+  const [detached, setDetached] = useState(false);
+  const [detachedPos, setDetachedPos] = useState<
+    [number, number, number] | null
+  >(null);
 
-  const isHorizontalRotation = (r?: [number, number, number]) => {
-    if (!r) {
-      return false;
+  // Sync external scale from viroAppProps
+  useEffect(() => {
+    const ext = sceneRef.current?.props?.sceneNavigator?.viroAppProps;
+    if (ext && typeof ext.scale === 'number' && !Number.isNaN(ext.scale)) {
+      const clamped = Math.max(0.01, ext.scale); // no upper bound
+      setScale(clamped);
     }
-    const norm = (a: number) => Math.abs(((a + 180) % 360) - 180);
-    const tiltX = norm(r[0]);
-    const tiltZ = norm(r[2]);
-    return tiltX < 25 && tiltZ < 25;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneRef.current?.props?.sceneNavigator?.viroAppProps?.scaleNonce]);
 
-  const handleTapToPlace = async (evt: any) => {
-    try {
-      const click = evt?.nativeEvent || evt;
-      const [x, y] = click?.clickPos || [];
-      if (
-        sceneRef.current &&
-        typeof sceneRef.current.performARHitTestWithPoint === 'function' &&
-        x != null &&
-        y != null
-      ) {
-        const results = await sceneRef.current.performARHitTestWithPoint(x, y);
-        if (Array.isArray(results) && results.length > 0) {
-          const planeHits = results.filter(
-            (r: any) =>
-              r?.type === 'ExistingPlaneUsingGeometry' ||
-              r?.type === 'ExistingPlaneUsingExtent' ||
-              r?.type === 'EstimatedHorizontalPlane',
+  // Toast on marker state changes (Android) with basic throttling
+  useEffect(() => {
+    const showToast = (msg: string) => {
+      if (Platform.OS === 'android') {
+        const now = Date.now();
+        if (now - lastToastAtRef.current > 1500) {
+          ToastAndroid.showWithGravityAndOffset(
+            msg,
+            ToastAndroid.SHORT,
+            ToastAndroid.TOP,
+            0,
+            80,
           );
-          const horizontalHit = planeHits.find((h: any) =>
-            isHorizontalRotation(
-              (h?.transform?.rotation || h?.rotation) as any,
-            ),
-          );
-          const hit =
-            (!wallMode && horizontalHit) ||
-            (wallMode && (horizontalHit || planeHits[0])) ||
-            results[0];
-          const t = hit?.transform || hit;
-          if (t?.position) {
-            setPos(t.position as [number, number, number]);
-          }
-          if (t?.rotation) {
-            setRot(t.rotation as [number, number, number]);
-          }
-          setPlaced(true);
-          setFollowing(false);
+          lastToastAtRef.current = now;
         }
       }
-    } catch {}
-  };
+    };
+    if (!prevMarkerVisibleRef.current && markerVisible) {
+      showToast('Marker terdeteksi');
+    } else if (prevMarkerVisibleRef.current && !markerVisible) {
+      showToast('Marker hilang');
+    }
+    prevMarkerVisibleRef.current = markerVisible;
+  }, [markerVisible]);
 
-  useEffect(() => {
-    let interval: any;
-    const tick = async () => {
-      if (!sceneRef.current || !following || placed) {
-        return;
-      }
+  const handleSceneTap = async () => {
+    const now = Date.now();
+    if (now - lastTapAtRef.current < 300) {
+      // Double tap detected → place object in front of camera
       try {
-        const {width, height} = Dimensions.get('window');
-        const x = Math.floor(width / 2);
-        const y = Math.floor(height / 2);
-        if (typeof sceneRef.current.performARHitTestWithPoint === 'function') {
-          const results = await sceneRef.current.performARHitTestWithPoint(
-            x,
-            y,
-          );
-          if (Array.isArray(results) && results.length > 0) {
-            const planeHits = results.filter(
-              (r: any) =>
-                r?.type === 'ExistingPlaneUsingGeometry' ||
-                r?.type === 'ExistingPlaneUsingExtent',
+        const place = (pos: number[], fwd: number[], dist = 0.6) => {
+          const target: [number, number, number] = [
+            pos[0] + fwd[0] * dist,
+            pos[1] + fwd[1] * dist,
+            pos[2] + fwd[2] * dist,
+          ];
+          setDetachedPos(target);
+          setDetached(true);
+          if (Platform.OS === 'android') {
+            ToastAndroid.showWithGravityAndOffset(
+              'Objek dipindah ke depan Anda',
+              ToastAndroid.SHORT,
+              ToastAndroid.TOP,
+              0,
+              80,
             );
-            const horizontalPlane = planeHits.find((h: any) =>
-              isHorizontalRotation(
-                (h?.transform?.rotation || h?.rotation) as any,
-              ),
+          }
+        };
+        if (sceneRef.current?.getCameraOrientationAsync) {
+          const maybe = sceneRef.current.getCameraOrientationAsync();
+          if (maybe && typeof maybe.then === 'function') {
+            const o = await maybe;
+            const pos = o?.position || o?.cameraPosition || [0, 0, 0];
+            const fwd = o?.forward || o?.cameraForward || [0, 0, -1];
+            place(pos, fwd);
+          } else if (
+            typeof sceneRef.current.getCameraOrientationAsync === 'function'
+          ) {
+            sceneRef.current.getCameraOrientationAsync(
+              (pos: number[], fwd: number[]) => {
+                place(pos, fwd);
+              },
             );
-            const fallbackHit =
-              results.find(
-                (r: any) =>
-                  r?.type === 'EstimatedHorizontalPlane' ||
-                  r?.type === 'FeaturePoint',
-              ) || results[0];
-            const chosen =
-              (!wallMode && horizontalPlane) ||
-              (wallMode && (horizontalPlane || planeHits[0])) ||
-              fallbackHit;
-            const t = chosen?.transform || chosen;
-            if (t?.position) {
-              setPos(t.position as [number, number, number]);
-            }
-            if (t?.rotation) {
-              setRot(t.rotation as [number, number, number]);
-            }
-            if (
-              (!wallMode && horizontalPlane) ||
-              (wallMode && (horizontalPlane || planeHits[0]))
-            ) {
-              setPlaced(true);
-              setFollowing(false);
-            }
           }
         }
       } catch {}
-    };
-    interval = setInterval(tick, 200);
-    return () => interval && clearInterval(interval);
-  }, [following, placed, wallMode]);
-
-  ViroMaterials.createMaterials({
-    reticle: {
-      diffuseColor: '#00ff88',
-      lightingModel: 'Lambert',
-      writesToDepthBuffer: true,
-      colorWritesMask: 'All',
-    },
-  });
+      lastTapAtRef.current = 0;
+      return;
+    }
+    lastTapAtRef.current = now;
+  };
 
   return (
-    <ViroARScene ref={sceneRef} onClick={handleTapToPlace}>
+    <ViroARScene ref={sceneRef} onClick={handleSceneTap}>
       <ViroAmbientLight color="#FFFFFF" intensity={500} />
       <ViroDirectionalLight
         color="#ffffff"
@@ -155,51 +138,70 @@ const ArScene: React.FC<any> = () => {
         shadowOpacity={0.4}
       />
 
-      {(!placed || following) && (
+      {!markerVisible && (
         <ViroText
-          text="Arahkan ke bidang datar lalu ketuk untuk menempatkan"
+          text="Arahkan kamera ke marker untuk menampilkan objek"
           position={[0, 0.1, -0.7]}
           style={styles.hintText}
         />
       )}
 
-      {following && pos && (
-        <ViroNode position={pos} rotation={rot || [0, 0, 0]}>
-          <ViroQuad
-            materials={['reticle']}
-            rotation={[-90, 0, 0]}
-            position={[0, 0.01, 0]}
-            width={0.08}
-            height={0.08}
-            style={styles.reticle}
+      {detached && detachedPos ? (
+        <ViroNode opacity={0} animation={{name: 'fadeIn', run: true}}>
+          <Viro3DObject
+            source={require('../assets/models/cube.glb')}
+            type="GLB"
+            position={detachedPos}
+            rotation={[0, 0, 0]}
+            scale={[scale, scale, scale]}
+            onLoadStart={() => console.log('GLB load start')}
+            onLoadEnd={() => console.log('GLB load end')}
+            onError={(e: any) =>
+              console.warn('GLB load error', e?.nativeEvent || e)
+            }
+            onPinch={(pinchState: number, scaleFactor: number) => {
+              if (pinchState === 1) {
+                baseScaleRef.current = scale;
+              } else if (pinchState === 2) {
+                const next = Math.max(0.01, baseScaleRef.current * scaleFactor);
+                setScale(next);
+              }
+            }}
           />
         </ViroNode>
-      )}
-
-      {(pos || placed) && pos && (
-        <Viro3DObject
-          source={require('../../cube.glb')}
-          type="GLB"
-          position={pos}
-          rotation={rot || [0, 0, 0]}
-          scale={[scale, scale, scale]}
-          onLoadStart={() => console.log('GLB load start')}
-          onLoadEnd={() => console.log('GLB load end')}
-          onError={(e: any) =>
-            console.warn('GLB load error', e?.nativeEvent || e)
-          }
-          onPinch={(pinchState: number, scaleFactor: number) => {
-            if (pinchState === 1) {
-              baseScaleRef.current = scale;
-            } else if (pinchState === 2) {
-              const next = Math.min(
-                3,
-                Math.max(0.1, baseScaleRef.current * scaleFactor),
-              );
-              setScale(next);
-            }
-          }}
-        />
+      ) : (
+        <ViroARImageMarker
+          target="markerA"
+          onAnchorFound={() => setMarkerVisible(true)}
+          onAnchorRemoved={() => setMarkerVisible(false)}>
+          <ViroNode
+            opacity={0}
+            animation={{name: markerVisible ? 'fadeIn' : 'fadeOut', run: true}}>
+            <Viro3DObject
+              source={require('../assets/models/cube.glb')}
+              type="GLB"
+              position={[0, 10, 0]}
+              rotation={[0, 0, 0]}
+              scale={[scale, scale, scale]}
+              onLoadStart={() => console.log('GLB load start')}
+              onLoadEnd={() => console.log('GLB load end')}
+              onError={(e: any) =>
+                console.warn('GLB load error', e?.nativeEvent || e)
+              }
+              onPinch={(pinchState: number, scaleFactor: number) => {
+                if (pinchState === 1) {
+                  baseScaleRef.current = scale;
+                } else if (pinchState === 2) {
+                  const next = Math.max(
+                    0.01,
+                    baseScaleRef.current * scaleFactor,
+                  );
+                  setScale(next);
+                }
+              }}
+            />
+          </ViroNode>
+        </ViroARImageMarker>
       )}
     </ViroARScene>
   );
