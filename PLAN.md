@@ -1,101 +1,130 @@
-# Rencana Media Pembelajaran Geometri (AR)
+% Rencana Migrasi UI (creativeSpaceLab → rnArViro)
 
-Tujuan: membuat pengalaman belajar geometri yang interaktif di AR, dengan objek 3D yang dapat di-resize, otomatis mengikuti layar saat dibuka (reticle/ghost object), dan berpindah/snap ke bidang datar saat terdeteksi.
+Dokumen ini menjabarkan langkah terstruktur untuk memindahkan layar (Splash → Login → MainTabs/Home) dan styling (tema, mapping font, aset) dari project `creativeSpaceLab` ke `rnArViro`. Fitur AR akan tetap menggunakan implementasi AR dari `rnArViro` (via `@viro-community/react-viro`).
 
-## Sasaran & Kriteria Sukses
+## Tujuan
+- Menambahkan alur onboarding dan home dari `creativeSpaceLab` ke `rnArViro` tanpa mengubah fitur AR yang sudah ada.
+- Menyatukan tema UI Kitten, font, dan aset agar tampilan konsisten.
 
-- Dapat memperbesar/memperkecil objek dengan gestur pinch (rentang aman 0.1–3x).
-- Saat aplikasi dibuka, objek “mengikuti” pusat layar (reticle) untuk memberi konteks skala & posisi.
-- Ketika bidang datar terdeteksi, objek otomatis dipindah/snap ke bidang tersebut (atau dengan tap, sesuai mode).
-- Pengalaman nyaman: instruksi jelas, performa stabil (>= 30 FPS), dan skala objek konsisten dengan satuan meter.
+## Ruang Lingkup
+- Pindahkan layar:
+  - `SplashScreen`, `LoginScreen`, `MainTabs` (berisi `HomeScreen`, `HelpScreen`, `ProfileScreen`) dan `NextScreen` (placeholder).
+- Pindahkan styling & aset terkait:
+  - UI Kitten theme: `src/theme/customTheme.ts`, `src/theme/customMapping.ts`.
+  - Komponen: `src/components/common/ShadowButton.tsx`.
+  - Aset gambar, lottie, dan font yang digunakan layar-layar di atas.
+- Integrasi navigasi: tambahkan stack navigator dengan start di Splash → Login → MainTabs.
+- Integrasi AR: tambahkan route `AR` yang menunjuk ke `ArSceneScreen` (dari `rnArViro`) dan hubungkan dari Home (card “Explore in AR”).
 
-## Cerita Pengguna (User Stories)
+Out of scope:
+- Tidak memindahkan layar AR dari `creativeSpaceLab` (ExploreInAr/ARExperiment).
+- Tidak mengubah logika AR `rnArViro` selain penambahan route di navigator.
 
-- Sebagai siswa, saya melihat bentuk geometri muncul di depan saya dan mengikuti arah pandang saya sebelum ditempatkan.
-- Sebagai siswa, saya bisa memperbesar/memperkecil bentuk agar mudah diamati detail sisi, rusuk, dan titik sudut.
-- Sebagai siswa, ketika kamera menemukan meja/lantai, objek otomatis berpindah dan “menempel” di permukaan tersebut agar stabil.
-- Sebagai guru, saya bisa menambahkan instruksi dan label (nama sisi, rusuk, sudut) untuk mendukung penjelasan.
+## Dependensi yang Ditambahkan (di rnArViro)
+- Navigasi:
+  - `@react-navigation/native`
+  - `@react-navigation/stack`
+  - `react-native-screens`
+  - `react-native-safe-area-context`
+  - `react-native-gesture-handler`
+- UI & styling:
+  - `@ui-kitten/components`
+  - `@eva-design/eva`
+  - `react-native-linear-gradient`
+  - `lottie-react-native`
+  - `react-native-heroicons`
+  - `react-native-svg`
 
-## Fitur Inti
+Catatan kompatibilitas:
+- `rnArViro` menggunakan React Native 0.73.9. Gunakan versi paket yang kompatibel dengan RN 0.73.x (bila versi di `creativeSpaceLab` tidak cocok, pilih minor terdekat yang mendukung RN 0.73).
 
-- Resize: pinch untuk skala dinamis dengan clamp (0.1–3.0), skala uniform XYZ.
-- Auto-follow on open: hit-test titik tengah layar (reticle) berkala; selama belum ada bidang stabil, objek mengikuti hasil hit-test (estimated plane / depth) agar terasa “mengambang” di depan.
-- Auto-snap to plane: saat terdeteksi horizontal plane (meja/lantai), objek berpindah ke posisi hit-test terakhir di plane dan “terkunci” di sana; opsi: tetap boleh tap-to-place untuk kontrol manual.
+## Aset yang Dipindahkan
+- Gambar: `logo-criti-space.png`, `kananatas.png`, `kiritengah.png`, `explore-in-ar(.png| -bg.png)`, `problem-challenge(-bg).png`, `geogebra-lab(-bg).png`, `my-progress(-bg).png`.
+- Lottie: `cube2.json`.
+- Font: `PlusJakartaSans-{Regular,Medium,SemiBold,Bold}.ttf`.
 
-## Alur UX Sederhana
+## Struktur Folder Baru (rnArViro)
+- `src/theme/` → `customTheme.ts`, `customMapping.ts`
+- `src/components/common/` → `ShadowButton.tsx`
+- `src/screens/` → `SplashScreen.tsx`, `LoginScreen.tsx`, `HomeScreen.tsx`, `HelpScreen.tsx`, `ProfileScreen.tsx`, `NextScreen.tsx`, `MainTabs.tsx`
+- `src/assets/images/` → seluruh gambar yang diperlukan
+- `src/assets/lottie/` → `cube2.json` (opsional: tetap di images jika ingin)
+- `src/assets/fonts/` → file TTF
+- `src/config/env.ts` → util versi app (opsional; atau baca langsung dari `package.json`)
 
-1. Buka aplikasi → status “Tracking” dicek → tampilkan reticle + teks singkat petunjuk.
-2. Selama belum ada plane stabil, objek mengikuti pusat layar (smooth).
-3. Plane terdeteksi → objek snap ke plane (atau menunggu tap, tergantung mode).
-4. Siswa pinch untuk memperbesar/memperkecil; dapat menampilkan label sisi/rusuk/sudut on-demand.
+## Langkah Migrasi
+1) Install dependensi tambahan
+- Tambahkan paket navigasi dan UI Kitten beserta peer deps (lihat daftar di atas).
+- iOS: setelah install, jalankan `cd ios && pod install`.
 
-## Pendekatan Teknis (React Native + @viro-community/react-viro)
+2) Pindahkan file & aset
+- Salin file layar, komponen, tema, dan aset dari `creativeSpaceLab` ke struktur folder `rnArViro` di atas.
+- Salin `react-native.config.js` (atau gabungkan) untuk deklarasi assets fonts: `assets: ['./src/assets/fonts']`.
 
-- Scene: `ViroARSceneNavigator` → `ViroARScene`.
-- Hit-test: gunakan `performARHitTestWithPoint(x, y)` dengan `x,y` titik tengah layar untuk auto-follow.
-- Deteksi plane: filter hasil hit-test dengan tipe plane (mis. `ExistingPlaneUsingGeometry`, `ExistingPlaneUsingExtent`, `EstimatedHorizontalPlane`).
-- Horizontal-only snap: hindari dinding/plane vertikal dengan heuristik orientasi dari `rotation` (derajat). Anggap horizontal bila |rotX| dan |rotZ| < ~25°. Jika tidak ada plane horizontal, teruskan follow dan jangan snap dulu.
-- State:
-  - `following`: true saat mengikuti pusat layar; false setelah snap.
-  - `placed`: true saat objek sudah di posisi final (snap/tap).
-  - `scale`: angka tunggal untuk uniform scaling (default 0.4, clamp 0.1–3.0).
-- Gestur: `onPinch` pada `Viro3DObject` untuk mengubah `scale` (gunakan `baseScaleRef * scaleFactor`).
-- Mode penempatan:
-  - Otomatis (default): snap saat plane stabil pertama terdeteksi.
-  - Manual: tap-to-place di bidang (pertahankan kode `performARHitTestWithPoint` pada `onClick`).
-  - Opsi “Wall mode”: dapat diaktifkan kemudian untuk mengizinkan plane vertikal (default nonaktif agar tidak menempel di dinding).
+3) Link font
+- Jalankan `npx react-native-asset` agar font tersalin ke `android/app/src/main/assets/fonts` dan terdaftar di iOS.
+- Verifikasi Info.plist/Build Phases iOS bila diperlukan.
 
-## Tugas Tahapan (Milestones)
+4) Setup UI Kitten provider
+- Bungkus root app `App.tsx` dengan:
+  - `ApplicationProvider` dari `@ui-kitten/components` menggunakan `eva.light` yang digabung dengan `customTheme`.
+  - `customMapping` untuk font mapping.
 
-1. Dasar AR & izin kamera [Selesai di app saat ini]
-2. Resize: implementasi `onPinch` dengan clamp dan smoothing
-3. Auto-follow: loop hit-test pusat layar; perbarui posisi objek saat `following = true`
-4. Deteksi plane & auto-snap: kunci posisi saat plane stabil; hentikan follow
-5. Opsi tap-to-place: jika mode manual diaktifkan, pindahkan objek ke titik tap
-6. UI instruksi: teks singkat, indikator tracking (Normal/Limited), reticle
-7. Label edukatif: tampil/sembunyikan nama sisi, rusuk, sudut; highlight interaktif
-8. Optimasi & uji: performa, lighting, ukuran aset, pengalaman siswa
+5) Tambah navigator
+- Buat `AppNavigator.tsx` (atau edit `App.tsx`) untuk menggunakan `NavigationContainer` + `createStackNavigator`.
+- Rute:
+  - `Splash` → `SplashScreen`
+  - `Login` → `LoginScreen`
+  - `MainTabs` → `MainTabs` (hide header)
+  - `Next` → `NextScreen`
+  - `AR` → `ArSceneScreen` (dari `rnArViro`), tetap tersedia dari Home
 
-## Rekomendasi Konten Geometri (Media Pembelajaran)
+6) Integrasi Home → AR
+- Di `HomeScreen`, ubah handler card “Explore in AR” agar `navigation.navigate('AR')` (menggunakan `ArSceneScreen` bawaan `rnArViro`).
+- Hapus referensi ke `ExploreInAr`/`ARExperiment` (tidak dipindahkan).
 
-- Bentuk dasar: kubus, balok, prisma segitiga, limas, tabung, kerucut, bola.
-- Material kontras: warna berbeda per sisi untuk memudahkan identifikasi; opsi wireframe/transparan.
-- Label interaktif: tombol untuk menampilkan nama sisi (A, B, C…), rusuk (AB, BC…), sudut (∠ABC), serta jumlah masing-masing.
-- Aktivitas:
-  - “Cari dan sebutkan”: siswa menyentuh sisi/rusuk/sudut yang diminta.
-  - “Ukur & bandingkan”: perbesar objek sampai rusuk ≈ 10 cm di dunia nyata; diskusikan skala.
-  - “Transformasi”: perbesar/kecilkan untuk memahami invarian (mis. rasio sisi, bentuk sudut tetap).
-- Pencahayaan: `ViroAmbientLight` + `ViroDirectionalLight` agar PBR & tepi bentuk jelas.
+7) Komponen pendukung
+- Salin `ShadowButton.tsx` dan pastikan impor `@ui-kitten/components` tersedia.
+- Pastikan `react-native-linear-gradient` terpasang untuk header gradient di Home.
 
-## Prompt/Narasi Edukatif (contoh dalam aplikasi)
+8) Lottie
+- Pastikan `lottie-react-native` terinstall.
+- iOS: jalankan `pod install` lagi bila ada perubahan native.
 
-- “Arahkan ponsel ke permukaan datar. Objek geometri akan mengikuti pusat layar.”
-- “Begitu permukaan terdeteksi, objek akan ditempatkan di meja. Cubit untuk memperbesar atau memperkecil.”
-- “Sentuh tombol ‘Label’ untuk menampilkan nama sisi, rusuk, dan sudut.”
-- “Tantangan: sebutkan berapa banyak sisi, rusuk, dan titik sudut pada bangun ini!”
-- “Ukur dengan mata: kira-kira panjang rusuknya berapa sentimeter saat ini?”
+9) Konfigurasi Android/iOS tambahan
+- Android: `react-native-screens` biasanya aktif otomatis di RN 0.73, namun pastikan tidak ada konflik.
+- iOS: verifikasi Pods untuk `react-native-svg`, `lottie-react-native`.
 
-## Pedoman Aset
+10) Verifikasi build
+- Jalankan `npm start` → `npm run android` / `npm run ios`.
+- Cek alur: Splash → Login → MainTabs(Home) → buka AR (ArSceneScreen).
 
-- Satuan meter: siapkan model dengan skala realistis (mis. kubus 0.2 m = 20 cm).
-- Topologi bersih: normals & pivots tepat (pivot di pusat alas untuk bentuk yang berdiri di plane).
-- Ukuran file: GLB < 2–5 MB; hindari tekstur raksasa; gunakan kompresi.
+## Perubahan Kode Inti (ringkas)
+- `App.tsx`:
+  - Bungkus dengan `ApplicationProvider` (UI Kitten) + `customTheme` dan `customMapping`.
+  - Render `AppNavigator` (Stack) alih-alih langsung `ArSceneScreen`.
+- `HomeScreen.tsx`:
+  - Ubah onPress card “Explore in AR” menjadi `navigation.navigate('AR')`.
+- Tambah `react-native.config.js` untuk fonts (jika belum ada).
 
-## Pengujian
-
-- Tracking: kondisi cahaya rendah/tinggi; permukaan gelap/terang; jarak 30–100 cm.
-- Performa: uji pada perangkat kelas menengah; pantau jank saat pinch & follow.
-- Ketahanan: cepat beralih antara follow → snap → pinch tanpa glitch.
+## Checklist Uji
+- Splash menampilkan animasi lottie dan tombol “Mulai”.
+- Navigasi Splash → Login → MainTabs berjalan.
+- UI Kitten theme dan font PlusJakartaSans aktif (cek heading/body).
+- Home menampilkan grid kartu dan membuka `ArSceneScreen` saat memilih “Explore in AR”.
+- AR (rnArViro) tetap berfungsi (hit-test, place/follow/pinch).
 
 ## Risiko & Mitigasi
+- Versi paket tidak cocok dengan RN 0.73 → gunakan versi minor yang kompatibel, atau lock seperti di repo template RN 0.73.
+- Font tidak ter-link → jalankan `npx react-native-asset` dan rebuild; verifikasi iOS target membership.
+- Konflik gesture/navigation → pastikan `react-native-gesture-handler` di-install dan import paling atas (jika diperlukan).
+- Lottie gagal build iOS → pastikan Pods terinstall dan versi cocok.
 
-- Plane sulit terdeteksi di meja/lantai polos → sarankan alas bermotif/koran; tambahkan reticle & instruksi.
-- Tersnap ke dinding (vertical plane) → aktifkan filter horizontal-only; sediakan toggle “Wall mode” bila materi membutuhkan pemasangan di dinding.
-- Skala membingungkan → tampilkan indikator skala (mis. “x1.5”) saat pinch.
-- Pencahayaan buruk → instruksi singkat untuk pindah ke area lebih terang.
+## Rollback
+- Perubahan terbatas pada penambahan file dan pembaruan `App.tsx`/navigator.
+- Simpan branch sebelum migrasi. Jika terjadi isu besar, kembalikan `App.tsx` untuk merender `ArSceneScreen` langsung dan nonaktifkan navigator sementara.
 
-## Langkah Berikutnya
+## Catatan Tambahan
+- `src/config/env.ts` opsional untuk menampilkan versi app di Splash. Alternatif: baca `require('../package.json').version` langsung saat render.
+- Bila ingin Bottom Tabs berbasis `@react-navigation/bottom-tabs`, dapat menggantikan `MainTabs` (UI Kitten BottomNavigation) kemudian.
 
-- Implementasi loop auto-follow (hit-test titik tengah) dan kondisi snap.
-- Tambah UI toggle: Mode Otomatis (snap) vs Tap-to-place (manual).
-- Tambahkan label edukatif dan satu set model bangun ruang.
